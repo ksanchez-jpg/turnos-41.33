@@ -3,9 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
 import math
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import io
 
 # Configuración de la página
 st.set_page_config(
@@ -122,22 +120,11 @@ if seccion == "1. Configuración de Cargos":
                 'Por Turno': cargo_data['personas_por_turno'],
                 'Turnos': " - ".join(turnos_str),
                 'Personas Necesarias': cargo_data['personas_necesarias'],
-                'Déficit/Superávit': cargo_data['deficit_superavit']
+                'Déficit/Superávit': f"{cargo_data['deficit_superavit']:.1f}"
             })
         
         df_tabla = pd.DataFrame(tabla_data)
-        
-        # Aplicar colores según déficit/superávit
-        def color_deficit(val):
-            if isinstance(val, (int, float)):
-                if val < 0:
-                    return 'color: red'
-                elif val > 0:
-                    return 'color: green'
-            return ''
-        
-        styled_df = df_tabla.style.applymap(color_deficit, subset=['Déficit/Superávit'])
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(df_tabla, use_container_width=True)
         
         # Resumen general
         st.subheader("📊 Resumen General")
@@ -201,13 +188,15 @@ elif seccion == "2. Generación de Turnos":
         max_horas_semana = st.number_input("Máximo Horas por Semana", min_value=30, max_value=60, value=int(cargo_data['horas_semanales']))
         
         weekend_work = st.checkbox("Trabajar Fines de Semana", value=True)
+        rotacion_equitativa = st.checkbox("Rotación Equitativa de Turnos", value=True)
         
         if st.button("🚀 Generar Turnos", type="primary"):
             with st.spinner("Generando turnos..."):
                 # Algoritmo de generación de turnos
                 turnos_resultado = generar_turnos_optimizado(
                     cargo_data, empleados, fecha_inicio, dias_planificar,
-                    max_turnos_consecutivos, min_descanso_horas, max_horas_semana, weekend_work
+                    max_turnos_consecutivos, min_descanso_horas, max_horas_semana, 
+                    weekend_work, rotacion_equitativa
                 )
                 
                 st.session_state.turnos_generados = {
@@ -220,11 +209,13 @@ elif seccion == "2. Generación de Turnos":
                         'max_consecutivos': max_turnos_consecutivos,
                         'min_descanso': min_descanso_horas,
                         'max_horas_semana': max_horas_semana,
-                        'weekend_work': weekend_work
+                        'weekend_work': weekend_work,
+                        'rotacion_equitativa': rotacion_equitativa
                     }
                 }
                 
             st.success("✅ Turnos generados exitosamente!")
+            st.balloons()
 
 # === SECCIÓN 3: VISUALIZACIÓN Y EXPORTAR ===
 elif seccion == "3. Visualización y Exportar":
@@ -237,13 +228,16 @@ elif seccion == "3. Visualización y Exportar":
     turnos_data = st.session_state.turnos_generados
     
     # Mostrar información general
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Cargo", turnos_data['cargo'])
     with col2:
         st.metric("Empleados", len(turnos_data['empleados']))
     with col3:
         st.metric("Días Planificados", turnos_data['dias'])
+    with col4:
+        total_turnos = sum(len(turnos_dia.values()) for turnos_dia in turnos_data['turnos'].values())
+        st.metric("Total Asignaciones", sum(len(empleados) for turnos_dia in turnos_data['turnos'].values() for empleados in turnos_dia.values()))
     
     # Tabs para diferentes vistas
     tab1, tab2, tab3 = st.tabs(["📅 Calendario", "📊 Estadísticas", "📁 Exportar"])
@@ -262,10 +256,9 @@ elif seccion == "3. Visualización y Exportar":
 
 # === FUNCIONES AUXILIARES ===
 
-def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_consecutivos, min_descanso, max_horas_semana, weekend_work):
+def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_consecutivos, min_descanso, max_horas_semana, weekend_work, rotacion_equitativa):
     """Genera turnos optimizados considerando restricciones"""
     
-    turnos = ['Mañana', 'Tarde', 'Noche']
     turnos_activos = []
     if cargo_data['turnos_activos'][0]: turnos_activos.append('Mañana')
     if cargo_data['turnos_activos'][1]: turnos_activos.append('Tarde')
@@ -275,7 +268,17 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_con
     
     # Estructura para almacenar asignaciones
     asignaciones = {}
-    empleado_stats = {emp: {'turnos_consecutivos': 0, 'horas_semana': 0, 'ultimo_turno': None} for emp in empleados}
+    empleado_stats = {emp: {
+        'turnos_consecutivos': 0, 
+        'horas_semana': 0, 
+        'ultimo_turno_fecha': None,
+        'ultimo_turno_tipo': None,
+        'total_turnos': 0,
+        'turnos_por_tipo': {'Mañana': 0, 'Tarde': 0, 'Noche': 0}
+    } for emp in empleados}
+    
+    # Índice para rotación equitativa
+    indice_rotacion = 0
     
     for dia in range(dias):
         fecha_actual = fecha_inicio + timedelta(days=dia)
@@ -308,10 +311,27 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_con
                 if stats['turnos_consecutivos'] >= max_consecutivos:
                     puede_trabajar = False
                 
+                # Verificar descanso mínimo entre turnos
+                if stats['ultimo_turno_fecha']:
+                    horas_desde_ultimo = (fecha_actual - stats['ultimo_turno_fecha']).total_seconds() / 3600
+                    if horas_desde_ultimo < min_descanso:
+                        puede_trabajar = False
+                
                 if puede_trabajar:
                     empleados_disponibles.append(emp)
             
-            # Seleccionar empleados para este turno (rotación equitativa)
+            # Seleccionar empleados para este turno
+            if rotacion_equitativa:
+                # Ordenar por menor cantidad de turnos de este tipo
+                empleados_disponibles.sort(key=lambda x: (
+                    empleado_stats[x]['turnos_por_tipo'][turno], 
+                    empleado_stats[x]['total_turnos']
+                ))
+            else:
+                # Rotación simple
+                empleados_disponibles = empleados_disponibles[indice_rotacion:] + empleados_disponibles[:indice_rotacion]
+                indice_rotacion = (indice_rotacion + 1) % len(empleados) if empleados else 0
+            
             empleados_seleccionados = empleados_disponibles[:personas_por_turno]
             asignaciones[fecha_actual.strftime('%Y-%m-%d')][turno] = empleados_seleccionados
             
@@ -319,7 +339,10 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_con
             for emp in empleados_seleccionados:
                 empleado_stats[emp]['horas_semana'] += 8
                 empleado_stats[emp]['turnos_consecutivos'] += 1
-                empleado_stats[emp]['ultimo_turno'] = (fecha_actual, turno)
+                empleado_stats[emp]['ultimo_turno_fecha'] = fecha_actual
+                empleado_stats[emp]['ultimo_turno_tipo'] = turno
+                empleado_stats[emp]['total_turnos'] += 1
+                empleado_stats[emp]['turnos_por_tipo'][turno] += 1
             
             # Resetear turnos consecutivos para empleados que no trabajan
             for emp in empleados:
@@ -344,19 +367,23 @@ def mostrar_calendario_turnos(turnos_data):
         st.warning("No hay turnos generados para mostrar.")
         return
     
-    # Crear tabla por semanas
+    # Crear tabla por días
     df_calendario = []
     
     for fecha_str in fechas:
         fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d')
         dia_semana = fecha_obj.strftime('%A')
+        dia_semana_es = {
+            'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles',
+            'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
+        }.get(dia_semana, dia_semana)
         
         turnos_dia = turnos_data['turnos'][fecha_str]
         
         for turno, empleados in turnos_dia.items():
             df_calendario.append({
                 'Fecha': fecha_str,
-                'Día': dia_semana,
+                'Día': dia_semana_es,
                 'Turno': turno,
                 'Empleados': ', '.join(empleados) if empleados else 'Sin asignar',
                 'Cantidad': len(empleados)
@@ -366,11 +393,19 @@ def mostrar_calendario_turnos(turnos_data):
         df = pd.DataFrame(df_calendario)
         st.dataframe(df, use_container_width=True)
         
-        # Gráfico de cobertura
-        fig = px.bar(df, x='Fecha', y='Cantidad', color='Turno', 
-                     title='Cobertura de Personal por Turno')
-        fig.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
+        # Mostrar cobertura usando métricas simples
+        st.subheader("📈 Análisis de Cobertura")
+        
+        cobertura_por_turno = df.groupby('Turno')['Cantidad'].agg(['mean', 'min', 'max']).round(1)
+        
+        cols = st.columns(len(cobertura_por_turno))
+        for i, (turno, stats) in enumerate(cobertura_por_turno.iterrows()):
+            with cols[i]:
+                st.metric(
+                    f"Turno {turno}",
+                    f"Prom: {stats['mean']}",
+                    f"Min: {stats['min']} | Max: {stats['max']}"
+                )
 
 def mostrar_estadisticas(turnos_data):
     """Muestra estadísticas de la asignación de turnos"""
@@ -400,81 +435,157 @@ def mostrar_estadisticas(turnos_data):
     df_stats = pd.DataFrame(stats_data)
     st.dataframe(df_stats, use_container_width=True)
     
-    # Gráficos
+    # Estadísticas generales
+    st.subheader("📊 Resumen Estadístico")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Promedio Turnos/Empleado", f"{df_stats['Total Turnos'].mean():.1f}")
+        st.metric("Empleado con Más Turnos", f"{df_stats['Total Turnos'].max()}")
+        st.metric("Empleado con Menos Turnos", f"{df_stats['Total Turnos'].min()}")
+    
+    with col2:
+        st.metric("Total Turnos Mañana", df_stats['Mañana'].sum())
+        st.metric("Total Turnos Tarde", df_stats['Tarde'].sum())
+        st.metric("Total Turnos Noche", df_stats['Noche'].sum())
+    
+    with col3:
+        st.metric("Promedio Horas/Empleado", f"{df_stats['Total Horas'].mean():.1f}")
+        st.metric("Total Horas Asignadas", df_stats['Total Horas'].sum())
+        desviacion = df_stats['Total Turnos'].std()
+        st.metric("Equidad (Desv. Std.)", f"{desviacion:.2f}")
+    
+    # Mostrar empleados con mayor/menor carga
+    st.subheader("⚖️ Balance de Carga")
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        fig_turnos = px.bar(df_stats, x='Empleado', y=['Mañana', 'Tarde', 'Noche'],
-                           title='Distribución de Turnos por Empleado')
-        fig_turnos.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_turnos, use_container_width=True)
+        st.write("**🔴 Empleados con Mayor Carga:**")
+        top_carga = df_stats.nlargest(3, 'Total Turnos')[['Empleado', 'Total Turnos', 'Total Horas']]
+        st.dataframe(top_carga, use_container_width=True, hide_index=True)
     
     with col2:
-        fig_horas = px.pie(df_stats, values='Total Horas', names='Empleado',
-                          title='Distribución de Horas Totales')
-        st.plotly_chart(fig_horas, use_container_width=True)
+        st.write("**🟢 Empleados con Menor Carga:**")
+        min_carga = df_stats.nsmallest(3, 'Total Turnos')[['Empleado', 'Total Turnos', 'Total Horas']]
+        st.dataframe(min_carga, use_container_width=True, hide_index=True)
 
 def exportar_turnos(turnos_data):
     """Permite exportar los turnos generados"""
     
-    col1, col2 = st.columns(2)
+    # Crear archivo Excel
+    df_export = []
     
-    with col1:
-        if st.button("📊 Descargar Excel"):
-            # Crear archivo Excel
-            df_export = []
-            
-            for fecha_str, turnos_dia in turnos_data['turnos'].items():
-                for turno, empleados in turnos_dia.items():
-                    for emp in empleados:
-                        df_export.append({
-                            'Fecha': fecha_str,
-                            'Turno': turno,
-                            'Empleado': emp,
-                            'Cargo': turnos_data['cargo']
-                        })
-            
-            if df_export:
-                df = pd.DataFrame(df_export)
-                
-                # Convertir a Excel en memoria
-                import io
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, sheet_name='Turnos', index=False)
-                
-                st.download_button(
-                    label="⬇️ Descargar Turnos.xlsx",
-                    data=output.getvalue(),
-                    file_name=f"turnos_{turnos_data['cargo']}_{turnos_data['fecha_inicio']}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    for fecha_str, turnos_dia in turnos_data['turnos'].items():
+        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d')
+        dia_semana = fecha_obj.strftime('%A')
+        dia_semana_es = {
+            'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles',
+            'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
+        }.get(dia_semana, dia_semana)
+        
+        for turno, empleados in turnos_dia.items():
+            if empleados:  # Solo si hay empleados asignados
+                for emp in empleados:
+                    df_export.append({
+                        'Fecha': fecha_str,
+                        'Día': dia_semana_es,
+                        'Turno': turno,
+                        'Empleado': emp,
+                        'Cargo': turnos_data['cargo'],
+                        'Horas': 8
+                    })
     
-    with col2:
-        if st.button("📋 Copiar Resumen"):
-            resumen = f"""
-RESUMEN DE TURNOS - {turnos_data['cargo']}
-Período: {turnos_data['fecha_inicio']} - {turnos_data['dias']} días
+    if df_export:
+        df = pd.DataFrame(df_export)
+        
+        # Mostrar vista previa
+        st.subheader("👀 Vista Previa del Archivo")
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Convertir a CSV
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="📊 Descargar CSV",
+                data=csv,
+                file_name=f"turnos_{turnos_data['cargo']}_{turnos_data['fecha_inicio']}.csv",
+                mime="text/csv"
+            )
+        
+        with col2:
+            # Generar resumen en texto
+            resumen = f"""RESUMEN DE TURNOS - {turnos_data['cargo']}
+================================
+Período: {turnos_data['fecha_inicio']} ({turnos_data['dias']} días)
 Empleados: {len(turnos_data['empleados'])}
-            """
-            st.code(resumen)
+Total Asignaciones: {len(df)}
+Total Horas: {len(df) * 8}
+
+PARÁMETROS UTILIZADOS:
+- Máx. Turnos Consecutivos: {turnos_data['parametros']['max_consecutivos']}
+- Mín. Horas Descanso: {turnos_data['parametros']['min_descanso']}
+- Máx. Horas/Semana: {turnos_data['parametros']['max_horas_semana']}
+- Trabajo Fines de Semana: {'Sí' if turnos_data['parametros']['weekend_work'] else 'No'}
+"""
+            
+            st.download_button(
+                label="📄 Descargar Resumen",
+                data=resumen,
+                file_name=f"resumen_turnos_{turnos_data['cargo']}.txt",
+                mime="text/plain"
+            )
+        
+        # Estadísticas del archivo
+        st.subheader("📈 Estadísticas del Archivo")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Registros", len(df))
+        with col2:
+            st.metric("Fechas Cubiertas", df['Fecha'].nunique())
+        with col3:
+            st.metric("Total Horas", len(df) * 8)
 
 # Información adicional en sidebar
 st.sidebar.markdown("---")
-st.sidebar.subheader("ℹ️ Información")
+st.sidebar.subheader("ℹ️ Información del Sistema")
 st.sidebar.markdown("""
 **Funcionalidades:**
 - ✅ Cálculo automático de personal
 - ✅ Consideración de ausentismo
 - ✅ Restricciones de turnos
-- ✅ Visualización interactiva
-- ✅ Exportación a Excel
+- ✅ Rotación equitativa
+- ✅ Visualización completa
+- ✅ Exportación CSV
+
+**Restricciones Aplicadas:**
+- Máximo turnos consecutivos
+- Horas mínimas de descanso
+- Límite horas semanales
+- Trabajo opcional en fines de semana
 
 **Desarrollado para:**
 Empresas Azucareras
 """)
 
+# Botón de ayuda
+with st.sidebar.expander("❓ Ayuda"):
+    st.markdown("""
+    **Cómo usar:**
+    1. Configure sus cargos en la Sección 1
+    2. Genere turnos en la Sección 2
+    3. Visualice y exporte en la Sección 3
+    
+    **Fórmulas utilizadas:**
+    - Personal Disponible = (Personal Actual - Vacaciones) × (1 - %Ausentismo)
+    - Personal Necesario = (Personas/Turno × Turnos × 7 días) ÷ (Horas Semanales ÷ 8)
+    """)
+
 if st.sidebar.button("🔄 Reiniciar Aplicación"):
-    st.session_state.cargos_data = []
-    st.session_state.turnos_generados = None
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     st.rerun()
