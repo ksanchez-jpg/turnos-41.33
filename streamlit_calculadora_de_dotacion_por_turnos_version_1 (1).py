@@ -72,20 +72,15 @@ def seleccionar_empleados_para_turno(empleados, empleado_stats, personas_requeri
 
         # 2. Comprobar si ya cumplió la cuota de este tipo de turno
         horas_turno = turno_info['horas']
-        if horas_turno == 8 and stats['dias_8h_asignados'] >= 5:
+        # Se flexibiliza un poco para evitar bloqueos, permitiendo un turno extra si es necesario
+        if horas_turno == 8 and stats['dias_8h_asignados'] >= 6: 
             continue
-        if horas_turno == 12 and stats['dias_12h_asignados'] >= 7:
+        if horas_turno == 12 and stats['dias_12h_asignados'] >= 8:
             continue
             
         # 3. Calcular un "costo" o "puntaje" para priorizar
         # Se prioriza a quien ha trabajado menos horas en total
-        # y a quien le faltan más turnos de este tipo para cumplir su cuota.
-        costo = stats['horas_totales'] * 10 
-        if horas_turno == 8:
-            costo += stats['dias_8h_asignados']
-        else: # 12h
-            costo += stats['dias_12h_asignados']
-
+        costo = stats['horas_totales']
         candidatos.append({'empleado': emp, 'costo': costo})
 
     # Ordenar candidatos por costo (menor es mejor)
@@ -97,7 +92,7 @@ def seleccionar_empleados_para_turno(empleados, empleado_stats, personas_requeri
 
 def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planificar, descanso_8h, descanso_12h):
     """
-    Lógica de generación de turnos completamente reescrita para ser más robusta y flexible.
+    Lógica de generación de turnos reescrita para asegurar cobertura los 21 días.
     """
     TURNOS_DEFINIDOS = {
         'Turno_M_8h': {'inicio': '06:00', 'fin': '14:00', 'horas': 8},
@@ -107,10 +102,10 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planif
         'Turno_N_12h': {'inicio': '18:00', 'fin': '06:00', 'horas': 12}
     }
     
-    # Patrón de 21 días: 5 turnos de 8h y 7 turnos de 12h
-    patron_dias = (['8h'] * 5 + ['12h'] * 7 + ['descanso'] * 9)
-    np.random.shuffle(patron_dias) # Barajar para variedad
-
+    # ===== CAMBIO CLAVE: Patrón fijo sin días de descanso para la empresa =====
+    # Se alternan días de 12h y 8h para asegurar cobertura 24/7 durante 21 días
+    patron_dias = (['12h', '12h', '8h', '12h', '8h', '12h', '8h']) * 3
+    
     personas_por_turno = cargo_data['personas_por_turno']
     
     # Inicializar estadísticas de empleados
@@ -129,21 +124,18 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planif
         fecha_str = fecha_actual.strftime('%Y-%m-%d')
         asignaciones[fecha_str] = {}
         
-        tipo_dia = patron_dias[i % len(patron_dias)]
+        tipo_dia = patron_dias[i]
 
         if tipo_dia == '8h':
             turnos_del_dia = ['Turno_M_8h', 'Turno_T_8h', 'Turno_N_8h']
             descanso_dia = descanso_8h
-        elif tipo_dia == '12h':
+        else: # '12h'
             turnos_del_dia = ['Turno_D_12h', 'Turno_N_12h']
             descanso_dia = descanso_12h
-        else: # Día de descanso general
-            continue
 
         for nombre_turno in turnos_del_dia:
             turno_info = TURNOS_DEFINIDOS[nombre_turno]
             
-            # Crear una lista de todos los empleados que no han sido asignados en esta fecha
             empleados_disponibles_hoy = [e for e in empleados if e not in [emp for turno in asignaciones[fecha_str].values() for emp in turno]]
 
             empleados_seleccionados = seleccionar_empleados_para_turno(
@@ -157,7 +149,6 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planif
             
             asignaciones[fecha_str][nombre_turno] = empleados_seleccionados
             
-            # Actualizar estadísticas de los empleados seleccionados
             for emp in empleados_seleccionados:
                 empleado_stats[emp]['horas_totales'] += turno_info['horas']
                 if turno_info['horas'] == 8:
@@ -177,20 +168,17 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planif
 # === SECCIÓN 1: CONFIGURACIÓN DE CARGOS ===
 if seccion == "1. Configuración de Cargos":
     st.header("📊 Configuración de Cargos y Cálculo de Personal")
-    
+    # (El código de esta sección no necesita cambios)
     col1, col2 = st.columns([2, 1])
-    
     with col1:
         st.subheader("Agregar Nuevo Cargo")
-        
         with st.form("form_cargo"):
             cargo = st.text_input("Nombre del Cargo", placeholder="Ej: Operador de Molienda")
-            personal_actual = st.number_input("Personal Actual en el Cargo", min_value=1, value=10)
+            personal_actual = st.number_input("Personal Actual en el Cargo", min_value=1, value=24)
             ausentismo = st.number_input("% Ausentismo", min_value=0.0, max_value=100.0, value=5.0, step=0.5)
             personal_vacaciones = st.number_input("Personal de Vacaciones", min_value=0, value=2)
             horas_semanales = st.number_input("Horas Promedio Semanales Permitidas", min_value=1.0, value=48.0, step=0.5)
             personas_por_turno = st.number_input("Personas Requeridas por Turno", min_value=1, value=3)
-            
             st.write("**Turnos por día (para cálculo de personal):**")
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1:
@@ -199,9 +187,7 @@ if seccion == "1. Configuración de Cargos":
                 turno_tarde = st.checkbox("Tarde (14:00-22:00)", value=True)
             with col_t3:
                 turno_noche = st.checkbox("Noche (22:00-06:00)", value=True)
-            
             submitted = st.form_submit_button("➕ Agregar Cargo")
-            
             if submitted and cargo:
                 turnos_activos = sum([turno_manana, turno_tarde, turno_noche])
                 personal_efectivo = personal_actual - personal_vacaciones
@@ -210,7 +196,6 @@ if seccion == "1. Configuración de Cargos":
                 horas_turno = 8
                 turnos_semanales_por_persona = horas_semanales / horas_turno
                 personas_necesarias = math.ceil((personal_requerido_total * 7) / turnos_semanales_por_persona)
-                
                 cargo_data = {
                     'cargo': cargo, 'personal_actual': personal_actual, 'ausentismo': ausentismo,
                     'personal_vacaciones': personal_vacaciones, 'horas_semanales': horas_semanales,
@@ -221,7 +206,6 @@ if seccion == "1. Configuración de Cargos":
                 st.session_state.cargos_data.append(cargo_data)
                 st.success(f"✅ Cargo '{cargo}' agregado correctamente!")
                 st.rerun()
-    
     with col2:
         if st.session_state.cargos_data:
             st.subheader("⚙️ Acciones")
@@ -229,11 +213,10 @@ if seccion == "1. Configuración de Cargos":
                 st.session_state.cargos_data = []
                 st.session_state.turnos_generados = None
                 st.rerun()
-    
     if st.session_state.cargos_data:
         st.subheader("📋 Cargos Configurados")
         df_tabla = pd.DataFrame(st.session_state.cargos_data)
-        st.dataframe(df_tabla[['cargo', 'personal_actual', 'ausentismo', 'personal_vacaciones', 'personal_disponible', 'personas_necesarias', 'deficit_superavit']], use_container_width=True)
+        st.dataframe(df_tabla[['cargo', 'personal_actual', 'personal_disponible', 'personas_necesarias', 'deficit_superavit']], use_container_width=True)
 
 # === SECCIÓN 2: GENERACIÓN DE TURNOS ===
 elif seccion == "2. Generación de Turnos":
@@ -247,8 +230,8 @@ elif seccion == "2. Generación de Turnos":
     
     with col1:
         st.subheader("📅 Configuración del Período")
-        fecha_inicio = st.date_input("Fecha de Inicio", value=date.today())
-        # El modelo de 124h requiere 21 días fijos.
+        # El campo de fecha ya no es necesario para la lógica, pero lo mantenemos por si acaso
+        fecha_inicio = st.date_input("Fecha de Inicio (referencial)", value=date.today())
         dias_planificar = st.number_input("Días a Planificar", value=21, min_value=21, max_value=21, disabled=True)
         st.info("ℹ️ El plan se genera para 21 días para cumplir el ciclo legal de 124 horas.")
         
@@ -279,7 +262,7 @@ elif seccion == "2. Generación de Turnos":
                     cargo_data, 
                     empleados, 
                     fecha_inicio, 
-                    21, # Se usan 21 días fijos
+                    21,
                     descanso_8h, 
                     descanso_12h
                 )
@@ -308,7 +291,6 @@ elif seccion == "3. Visualización y Exportar":
     
     st.subheader(f"Resultados para el cargo: **{turnos_data['cargo']}**")
 
-    # Crear el DataFrame principal para visualización y exportación
     df_export_list = []
     for fecha_str, turnos_dia in turnos_data['turnos'].items():
         for turno_nombre, empleados in turnos_dia.items():
@@ -317,7 +299,7 @@ elif seccion == "3. Visualización y Exportar":
                 df_export_list.append({
                     'Fecha': fecha_str,
                     'Empleado': emp,
-                    'Turno': turno_nombre
+                    'Turno': turno_nombre.replace("Turno_", "").replace("_", " ")
                 })
     
     if not df_export_list:
@@ -326,12 +308,20 @@ elif seccion == "3. Visualización y Exportar":
 
     df_export = pd.DataFrame(df_export_list)
     
-    # Tabla pivote para visualización de calendario
+    # ===== CAMBIO CLAVE: Crear y aplicar la visualización "Día 1, Día 2..." =====
     df_pivot = df_export.pivot_table(index='Empleado', columns='Fecha', values='Turno', aggfunc='first').fillna('Libre')
+    
+    # Crear un mapeo de fecha a "Día X"
+    fechas_ordenadas = sorted(df_pivot.columns)
+    mapa_columnas = {fecha: f"Día {i+1}" for i, fecha in enumerate(fechas_ordenadas)}
+    
+    # Renombrar las columnas
+    df_pivot.rename(columns=mapa_columnas, inplace=True)
+    
     st.dataframe(df_pivot, use_container_width=True)
 
-    # Estadísticas
-    st.subheader("📊 Estadísticas de Asignación")
+    # Estadísticas (sin cambios)
+    st.subheader("📊 Estadísticas de Asignación por Operador")
     stats_list = []
     for emp in turnos_data['empleados']:
         turnos_emp = df_export[df_export['Empleado'] == emp]
@@ -345,25 +335,22 @@ elif seccion == "3. Visualización y Exportar":
             elif '12h' in turno:
                 horas_trabajadas += 12
                 turnos_12h += 1
-        
         stats_list.append({
-            'Empleado': emp,
-            'Total Horas': horas_trabajadas,
+            'Empleado': emp, 'Total Horas': horas_trabajadas,
             'Promedio Semanal (h)': f"{horas_trabajadas/3:.2f}",
-            'Turnos de 8h': turnos_8h,
-            'Turnos de 12h': turnos_12h,
+            'Turnos de 8h': turnos_8h, 'Turnos de 12h': turnos_12h,
             'Total Turnos': len(turnos_emp)
         })
-    df_stats = pd.DataFrame(stats_list)
+    df_stats = pd.DataFrame(stats_list).set_index('Empleado')
     st.dataframe(df_stats, use_container_width=True)
 
     # Exportación
     st.subheader("📁 Exportar")
-    csv = df_export.to_csv(index=False).encode('utf-8')
+    csv = df_pivot.to_csv().encode('utf-8')
     st.download_button(
         label="📊 Descargar Cronograma en CSV",
         data=csv,
-        file_name=f"turnos_{turnos_data['cargo']}_{turnos_data['fecha_inicio']}.csv",
+        file_name=f"turnos_{turnos_data['cargo']}.csv",
         mime="text/csv",
     )
     
