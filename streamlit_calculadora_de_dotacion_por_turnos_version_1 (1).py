@@ -338,7 +338,7 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_con
             turnos_disponibles = ['Turno1_12h', 'Turno2_12h']
             for turno_nombre in turnos_disponibles:
                 empleados_seleccionados = seleccionar_empleados_12h(
-                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre
+                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre, descanso_12h
                 )
                 
                 asignaciones[fecha_str][turno_nombre] = empleados_seleccionados
