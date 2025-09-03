@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # Título principal
-st.title("🏭 Sistema de Generación de Turnos - Empresa Azucarera")
+st.title("🏭 Sistema de Generación de Turnos")
 
 # Inicializar session state
 if 'cargos_data' not in st.session_state:
