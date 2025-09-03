@@ -30,15 +30,14 @@ seccion = st.sidebar.radio(
 
 
 # ===================================================================
-# ============= INICIO DE LAS FUNCIONES DE LÓGICA (REVISADAS) =======
+# ============= INICIO DE LAS FUNCIONES DE LÓGICA (VERSIÓN FINAL) ===
 # ===================================================================
 
 def calcular_horas_descanso(fecha_ultimo_turno, hora_fin_ultimo, fecha_nuevo_turno, hora_inicio_nuevo):
-    """Calcula las horas de descanso entre dos turnos. Esta versión está corregida."""
+    """Calcula las horas de descanso entre dos turnos."""
     if not fecha_ultimo_turno:
-        return 999  # Descanso infinito si nunca ha trabajado
+        return 999
 
-    # Si el turno termina a las 06:00, la fecha de fin es al día siguiente
     if hora_fin_ultimo == '06:00':
         fecha_fin = fecha_ultimo_turno + timedelta(days=1)
     else:
@@ -52,10 +51,12 @@ def calcular_horas_descanso(fecha_ultimo_turno, hora_fin_ultimo, fecha_nuevo_tur
 
 def seleccionar_empleados_para_turno(empleados, empleado_stats, personas_requeridas, fecha_actual, turno_info, descanso_minimo):
     """
-    Función de selección de empleados más inteligente y robusta.
-    Selecciona los mejores candidatos para un turno específico.
+    Función de selección final. Prioriza a los empleados que más necesitan un tipo de turno específico
+    para cumplir su cuota de 5 (8h) y 7 (12h).
     """
     candidatos = []
+    horas_turno = turno_info['horas']
+
     for emp in empleados:
         stats = empleado_stats[emp]
         
@@ -66,55 +67,55 @@ def seleccionar_empleados_para_turno(empleados, empleado_stats, personas_requeri
             fecha_actual, 
             turno_info['inicio']
         )
-        
         if horas_descansadas < descanso_minimo:
-            continue # No está disponible, pasar al siguiente
+            continue
 
-        # 2. Comprobar si ya cumplió la cuota de este tipo de turno
-        horas_turno = turno_info['horas']
-        # Se flexibiliza un poco para evitar bloqueos, permitiendo un turno extra si es necesario
-        if horas_turno == 8 and stats['dias_8h_asignados'] >= 6: 
-            continue
-        if horas_turno == 12 and stats['dias_12h_asignados'] >= 8:
-            continue
-            
-        # 3. Calcular un "costo" o "puntaje" para priorizar
-        # Se prioriza a quien ha trabajado menos horas en total
+        # 2. Calcular un "costo" para priorizar. Menor costo es mejor.
+        # La base del costo es las horas totales, para balancear la carga general.
         costo = stats['horas_totales']
+
+        # 3. Aplicar bonus/penalizaciones para cumplir las cuotas de 5 y 7.
+        if horas_turno == 8:
+            if stats['dias_8h_asignados'] >= 5:
+                costo += 1000  # Penalización alta si ya cumplió la cuota de 8h
+            else:
+                # Bonus alto si le faltan turnos de 8h. A más le falten, mayor el bonus.
+                costo -= (5 - stats['dias_8h_asignados']) * 50
+        
+        elif horas_turno == 12:
+            if stats['dias_12h_asignados'] >= 7:
+                costo += 1000  # Penalización alta si ya cumplió la cuota de 12h
+            else:
+                # Bonus alto si le faltan turnos de 12h.
+                costo -= (7 - stats['dias_12h_asignados']) * 50
+
         candidatos.append({'empleado': emp, 'costo': costo})
 
-    # Ordenar candidatos por costo (menor es mejor)
     candidatos_ordenados = sorted(candidatos, key=lambda x: x['costo'])
-    
-    # Devolver los N mejores candidatos
     return [c['empleado'] for c in candidatos_ordenados[:personas_requeridas]]
 
 
 def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planificar, descanso_8h, descanso_12h):
     """
-    Lógica de generación de turnos reescrita para asegurar cobertura los 21 días.
+    Lógica de generación de turnos finalizada para garantizar 21 días y la distribución 5x8h + 7x12h.
     """
     TURNOS_DEFINIDOS = {
-        'Turno_M_8h': {'inicio': '06:00', 'fin': '14:00', 'horas': 8},
-        'Turno_T_8h': {'inicio': '14:00', 'fin': '22:00', 'horas': 8},
-        'Turno_N_8h': {'inicio': '22:00', 'fin': '06:00', 'horas': 8},
-        'Turno_D_12h': {'inicio': '06:00', 'fin': '18:00', 'horas': 12},
-        'Turno_N_12h': {'inicio': '18:00', 'fin': '06:00', 'horas': 12}
+        'M 8h': {'inicio': '06:00', 'fin': '14:00', 'horas': 8},
+        'T 8h': {'inicio': '14:00', 'fin': '22:00', 'horas': 8},
+        'N 8h': {'inicio': '22:00', 'fin': '06:00', 'horas': 8},
+        'D 12h': {'inicio': '06:00', 'fin': '18:00', 'horas': 12},
+        'N 12h': {'inicio': '18:00', 'fin': '06:00', 'horas': 12}
     }
     
-    # ===== CAMBIO CLAVE: Patrón fijo sin días de descanso para la empresa =====
-    # Se alternan días de 12h y 8h para asegurar cobertura 24/7 durante 21 días
-    patron_dias = (['12h', '12h', '8h', '12h', '8h', '12h', '8h']) * 3
+    # ===== PATRÓN DEFINITIVO: Garantiza 21 días y la proporción correcta de turnos 8h/12h =====
+    # 7 días con turnos de 8h y 14 días con turnos de 12h = 21 días totales.
+    patron_dias = ['12h', '12h', '8h'] * 7
     
     personas_por_turno = cargo_data['personas_por_turno']
     
-    # Inicializar estadísticas de empleados
     empleado_stats = {emp: {
-        'horas_totales': 0,
-        'dias_8h_asignados': 0,
-        'dias_12h_asignados': 0,
-        'ultimo_turno_fecha': None,
-        'ultimo_turno_fin_hora': None,
+        'horas_totales': 0, 'dias_8h_asignados': 0, 'dias_12h_asignados': 0,
+        'ultimo_turno_fecha': None, 'ultimo_turno_fin_hora': None,
     } for emp in empleados}
     
     asignaciones = {}
@@ -126,42 +127,32 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias_a_planif
         
         tipo_dia = patron_dias[i]
 
-        if tipo_dia == '8h':
-            turnos_del_dia = ['Turno_M_8h', 'Turno_T_8h', 'Turno_N_8h']
-            descanso_dia = descanso_8h
-        else: # '12h'
-            turnos_del_dia = ['Turno_D_12h', 'Turno_N_12h']
-            descanso_dia = descanso_12h
+        turnos_del_dia = ['D 12h', 'N 12h'] if tipo_dia == '12h' else ['M 8h', 'T 8h', 'N 8h']
+        descanso_dia = descanso_12h if tipo_dia == '12h' else descanso_8h
 
         for nombre_turno in turnos_del_dia:
             turno_info = TURNOS_DEFINIDOS[nombre_turno]
-            
             empleados_disponibles_hoy = [e for e in empleados if e not in [emp for turno in asignaciones[fecha_str].values() for emp in turno]]
-
             empleados_seleccionados = seleccionar_empleados_para_turno(
-                empleados_disponibles_hoy,
-                empleado_stats,
-                personas_por_turno,
-                fecha_actual,
-                turno_info,
-                descanso_dia
+                empleados_disponibles_hoy, empleado_stats, personas_por_turno,
+                fecha_actual, turno_info, descanso_dia
             )
-            
             asignaciones[fecha_str][nombre_turno] = empleados_seleccionados
             
             for emp in empleados_seleccionados:
-                empleado_stats[emp]['horas_totales'] += turno_info['horas']
+                stats = empleado_stats[emp]
+                stats['horas_totales'] += turno_info['horas']
                 if turno_info['horas'] == 8:
-                    empleado_stats[emp]['dias_8h_asignados'] += 1
+                    stats['dias_8h_asignados'] += 1
                 else:
-                    empleado_stats[emp]['dias_12h_asignados'] += 1
-                empleado_stats[emp]['ultimo_turno_fecha'] = fecha_actual
-                empleado_stats[emp]['ultimo_turno_fin_hora'] = turno_info['fin']
+                    stats['dias_12h_asignados'] += 1
+                stats['ultimo_turno_fecha'] = fecha_actual
+                stats['ultimo_turno_fin_hora'] = turno_info['fin']
 
     return asignaciones
 
 # ===================================================================
-# ============= FIN DE LAS FUNCIONES DE LÓGICA (REVISADAS) ==========
+# ============= FIN DE LAS FUNCIONES DE LÓGICA ======================
 # ===================================================================
 
 
@@ -230,7 +221,6 @@ elif seccion == "2. Generación de Turnos":
     
     with col1:
         st.subheader("📅 Configuración del Período")
-        # El campo de fecha ya no es necesario para la lógica, pero lo mantenemos por si acaso
         fecha_inicio = st.date_input("Fecha de Inicio (referencial)", value=date.today())
         dias_planificar = st.number_input("Días a Planificar", value=21, min_value=21, max_value=21, disabled=True)
         st.info("ℹ️ El plan se genera para 21 días para cumplir el ciclo legal de 124 horas.")
@@ -257,22 +247,15 @@ elif seccion == "2. Generación de Turnos":
         descanso_12h = st.number_input("Descanso mínimo tras turno de 12h (horas)", min_value=8, max_value=24, value=12)
         
         if st.button("🚀 Generar Turnos 124h", type="primary"):
-            with st.spinner("Generando cronograma optimizado... Esto puede tardar un momento."):
+            with st.spinner("Generando cronograma con objetivo 41.33h..."):
                 turnos_resultado = generar_turnos_optimizado(
-                    cargo_data, 
-                    empleados, 
-                    fecha_inicio, 
-                    21,
-                    descanso_8h, 
-                    descanso_12h
+                    cargo_data, empleados, fecha_inicio, 21,
+                    descanso_8h, descanso_12h
                 )
                 
                 st.session_state.turnos_generados = {
-                    'cargo': cargo_seleccionado,
-                    'empleados': empleados,
-                    'fecha_inicio': fecha_inicio,
-                    'dias': 21,
-                    'turnos': turnos_resultado,
+                    'cargo': cargo_seleccionado, 'empleados': empleados, 'fecha_inicio': fecha_inicio,
+                    'dias': 21, 'turnos': turnos_resultado,
                     'parametros': {'descanso_8h': descanso_8h, 'descanso_12h': descanso_12h}
                 }
                 
@@ -288,7 +271,6 @@ elif seccion == "3. Visualización y Exportar":
         st.stop()
     
     turnos_data = st.session_state.turnos_generados
-    
     st.subheader(f"Resultados para el cargo: **{turnos_data['cargo']}**")
 
     df_export_list = []
@@ -296,11 +278,7 @@ elif seccion == "3. Visualización y Exportar":
         for turno_nombre, empleados in turnos_dia.items():
             if not empleados: continue
             for emp in empleados:
-                df_export_list.append({
-                    'Fecha': fecha_str,
-                    'Empleado': emp,
-                    'Turno': turno_nombre.replace("Turno_", "").replace("_", " ")
-                })
+                df_export_list.append({'Fecha': fecha_str, 'Empleado': emp, 'Turno': turno_nombre})
     
     if not df_export_list:
         st.error("No se pudo asignar ningún turno con las restricciones dadas.")
@@ -308,33 +286,23 @@ elif seccion == "3. Visualización y Exportar":
 
     df_export = pd.DataFrame(df_export_list)
     
-    # ===== CAMBIO CLAVE: Crear y aplicar la visualización "Día 1, Día 2..." =====
     df_pivot = df_export.pivot_table(index='Empleado', columns='Fecha', values='Turno', aggfunc='first').fillna('Libre')
-    
-    # Crear un mapeo de fecha a "Día X"
     fechas_ordenadas = sorted(df_pivot.columns)
     mapa_columnas = {fecha: f"Día {i+1}" for i, fecha in enumerate(fechas_ordenadas)}
-    
-    # Renombrar las columnas
     df_pivot.rename(columns=mapa_columnas, inplace=True)
     
     st.dataframe(df_pivot, use_container_width=True)
 
-    # Estadísticas (sin cambios)
     st.subheader("📊 Estadísticas de Asignación por Operador")
     stats_list = []
     for emp in turnos_data['empleados']:
         turnos_emp = df_export[df_export['Empleado'] == emp]
-        horas_trabajadas = 0
-        turnos_8h = 0
-        turnos_12h = 0
+        horas_trabajadas = 0; turnos_8h = 0; turnos_12h = 0
         for turno in turnos_emp['Turno']:
             if '8h' in turno:
-                horas_trabajadas += 8
-                turnos_8h += 1
+                horas_trabajadas += 8; turnos_8h += 1
             elif '12h' in turno:
-                horas_trabajadas += 12
-                turnos_12h += 1
+                horas_trabajadas += 12; turnos_12h += 1
         stats_list.append({
             'Empleado': emp, 'Total Horas': horas_trabajadas,
             'Promedio Semanal (h)': f"{horas_trabajadas/3:.2f}",
@@ -344,7 +312,6 @@ elif seccion == "3. Visualización y Exportar":
     df_stats = pd.DataFrame(stats_list).set_index('Empleado')
     st.dataframe(df_stats, use_container_width=True)
 
-    # Exportación
     st.subheader("📁 Exportar")
     csv = df_pivot.to_csv().encode('utf-8')
     st.download_button(
@@ -354,7 +321,6 @@ elif seccion == "3. Visualización y Exportar":
         mime="text/csv",
     )
     
-# Botón reiniciar
 if st.sidebar.button("🔄 Reiniciar Aplicación"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
