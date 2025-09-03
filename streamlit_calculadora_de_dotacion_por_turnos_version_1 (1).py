@@ -30,7 +30,103 @@ def mostrar_estadisticas(turnos_data):
                     if tipo_turno == '8h':
                         empleado_stats[emp]['turnos_8h'] += 1
                     else:
-                        empleado_stats[emp]['turnos_12h'] += import streamlit as st
+                        empleado_stats[emp]['turnos_12h'] += 1
+    
+    # Crear DataFrame de estadísticas
+    stats_data = []
+    for emp, stats in empleado_stats.items():
+        promedio_semanal = stats['total_horas'] / 3  # 3 semanas
+        cumplimiento = (promedio_semanal / 41.33) * 100
+        
+        stats_data.append({
+            'Empleado': emp,
+            'Turnos 8h': stats['turnos_8h'],
+            'Turnos 12h': stats['turnos_12h'], 
+            'Total Turnos': stats['total_turnos'],
+            'Total Horas': stats['total_horas'],
+            'Promedio Semanal': f"{promedio_semanal:.2f}h",
+            'Cumplimiento': f"{cumplimiento:.1f}%",
+            'Días Trabajados': stats['dias_trabajados']
+        })
+    
+    df_stats = pd.DataFrame(stats_data)
+    st.dataframe(df_stats, use_container_width=True)
+    
+    # Estadísticas generales del patrón 124h
+    st.subheader("🎯 Análisis del Cumplimiento Legal")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        promedio_horas = df_stats['Total Horas'].astype(str).str.replace('h', '').astype(float).mean() if not df_stats.empty else 0
+        st.metric("Promedio Horas/Empleado", f"{promedio_horas:.1f}h")
+        
+    with col2:
+        promedio_semanal = promedio_horas / 3
+        st.metric("Promedio Semanal Real", f"{promedio_semanal:.2f}h")
+        
+    with col3:
+        diferencia = promedio_semanal - 42
+        color = "normal" if abs(diferencia) <= 1 else "inverse"
+        st.metric("Diferencia vs 42h", f"{diferencia:+.2f}h")
+        
+    with col4:
+        cumplimiento_promedio = (promedio_semanal / 42) * 100
+        st.metric("Cumplimiento Legal", f"{cumplimiento_promedio:.1f}%")
+    
+    # Verificación del patrón 5 días 8h + 7 días 12h
+    st.subheader("✅ Verificación del Patrón Objetivo")
+    
+    if not df_stats.empty:
+        turnos_8h_promedio = df_stats['Turnos 8h'].astype(int).mean()
+        turnos_12h_promedio = df_stats['Turnos 12h'].astype(int).mean()
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            estado_8h = "✅" if abs(turnos_8h_promedio - 5) <= 1 else "⚠️"
+            st.metric(f"{estado_8h} Turnos 8h por empleado", f"{turnos_8h_promedio:.1f}", "Objetivo: 5")
+            
+        with col2:
+            estado_12h = "✅" if abs(turnos_12h_promedio - 7) <= 1 else "⚠️"
+            st.metric(f"{estado_12h} Turnos 12h por empleado", f"{turnos_12h_promedio:.1f}", "Objetivo: 7")
+            
+        with col3:
+            total_dias = turnos_8h_promedio + turnos_12h_promedio
+            estado_total = "✅" if abs(total_dias - 12) <= 1 else "⚠️"
+            st.metric(f"{estado_total} Total días trabajados", f"{total_dias:.1f}", "Objetivo: 12")
+    
+    # Balance de carga
+    st.subheader("⚖️ Balance de Carga entre Empleados")
+    
+    if not df_stats.empty and len(df_stats) > 1:
+        col1, col2 = st.columns(2)
+        
+        # Convertir a numérico para cálculos
+        horas_numericas = df_stats['Total Horas'].astype(int)
+        
+        with col1:
+            st.write("**🔴 Empleados con Mayor Carga:**")
+            top_carga = df_stats.nlargest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
+            st.dataframe(top_carga, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.write("**🟢 Empleados con Menor Carga:**")
+            min_carga = df_stats.nsmallest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
+            st.dataframe(min_carga, use_container_width=True, hide_index=True)
+        
+        # Indicador de equidad
+        desviacion = horas_numericas.std()
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Desviación Estándar", f"{desviacion:.2f}h")
+        with col2:
+            equidad = "Excelente" if desviacion <= 2 else "Buena" if desviacion <= 5 else "Regular"
+            st.metric("Nivel de Equidad", equidad)
+        with col3:
+            rango_horas = horas_numericas.max() - horas_numericas.min()
+            st.metric("Rango (Max-Min)", f"{rango_horas}h")import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
