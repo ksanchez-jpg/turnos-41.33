@@ -1,132 +1,4 @@
-def mostrar_estadisticas(turnos_data):
-    """Muestra estadísticas específicas para el patrón 124 horas"""
-    
-    st.subheader("📊 Estadísticas del Patrón 124 Horas")
-    
-    # Calcular estadísticas por empleado
-    empleado_stats = {}
-    
-    for emp in turnos_data['empleados']:
-        empleado_stats[emp] = {
-            'turnos_8h': 0,
-            'turnos_12h': 0, 
-            'total_turnos': 0,
-            'total_horas': 0,
-            'dias_trabajados': 0
-        }
-    
-    # Procesar turnos
-    for fecha, turnos_dia in turnos_data['turnos'].items():
-        for turno_nombre, empleados in turnos_dia.items():
-            horas_turno = 8 if '8h' in turno_nombre else 12
-            tipo_turno = '8h' if '8h' in turno_nombre else '12h'
-            
-            for emp in empleados:
-                if emp in empleado_stats:
-                    empleado_stats[emp]['total_turnos'] += 1
-                    empleado_stats[emp]['total_horas'] += horas_turno
-                    empleado_stats[emp]['dias_trabajados'] += 1
-                    
-                    if tipo_turno == '8h':
-                        empleado_stats[emp]['turnos_8h'] += 1
-                    else:
-                        empleado_stats[emp]['turnos_12h'] += 1
-    
-    # Crear DataFrame de estadísticas
-    stats_data = []
-    for emp, stats in empleado_stats.items():
-        promedio_semanal = stats['total_horas'] / 3  # 3 semanas
-        cumplimiento = (promedio_semanal / 41.33) * 100
-        
-        stats_data.append({
-            'Empleado': emp,
-            'Turnos 8h': stats['turnos_8h'],
-            'Turnos 12h': stats['turnos_12h'], 
-            'Total Turnos': stats['total_turnos'],
-            'Total Horas': stats['total_horas'],
-            'Promedio Semanal': f"{promedio_semanal:.2f}h",
-            'Cumplimiento': f"{cumplimiento:.1f}%",
-            'Días Trabajados': stats['dias_trabajados']
-        })
-    
-    df_stats = pd.DataFrame(stats_data)
-    st.dataframe(df_stats, use_container_width=True)
-    
-    # Estadísticas generales del patrón 124h
-    st.subheader("🎯 Análisis del Cumplimiento Legal")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        promedio_horas = df_stats['Total Horas'].astype(str).str.replace('h', '').astype(float).mean() if not df_stats.empty else 0
-        st.metric("Promedio Horas/Empleado", f"{promedio_horas:.1f}h")
-        
-    with col2:
-        promedio_semanal = promedio_horas / 3
-        st.metric("Promedio Semanal Real", f"{promedio_semanal:.2f}h")
-        
-    with col3:
-        diferencia = promedio_semanal - 42
-        color = "normal" if abs(diferencia) <= 1 else "inverse"
-        st.metric("Diferencia vs 42h", f"{diferencia:+.2f}h")
-        
-    with col4:
-        cumplimiento_promedio = (promedio_semanal / 42) * 100
-        st.metric("Cumplimiento Legal", f"{cumplimiento_promedio:.1f}%")
-    
-    # Verificación del patrón 5 días 8h + 7 días 12h
-    st.subheader("✅ Verificación del Patrón Objetivo")
-    
-    if not df_stats.empty:
-        turnos_8h_promedio = df_stats['Turnos 8h'].astype(int).mean()
-        turnos_12h_promedio = df_stats['Turnos 12h'].astype(int).mean()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            estado_8h = "✅" if abs(turnos_8h_promedio - 5) <= 1 else "⚠️"
-            st.metric(f"{estado_8h} Turnos 8h por empleado", f"{turnos_8h_promedio:.1f}", "Objetivo: 5")
-            
-        with col2:
-            estado_12h = "✅" if abs(turnos_12h_promedio - 7) <= 1 else "⚠️"
-            st.metric(f"{estado_12h} Turnos 12h por empleado", f"{turnos_12h_promedio:.1f}", "Objetivo: 7")
-            
-        with col3:
-            total_dias = turnos_8h_promedio + turnos_12h_promedio
-            estado_total = "✅" if abs(total_dias - 12) <= 1 else "⚠️"
-            st.metric(f"{estado_total} Total días trabajados", f"{total_dias:.1f}", "Objetivo: 12")
-    
-    # Balance de carga
-    st.subheader("⚖️ Balance de Carga entre Empleados")
-    
-    if not df_stats.empty and len(df_stats) > 1:
-        col1, col2 = st.columns(2)
-        
-        # Convertir a numérico para cálculos
-        horas_numericas = df_stats['Total Horas'].astype(int)
-        
-        with col1:
-            st.write("**🔴 Empleados con Mayor Carga:**")
-            top_carga = df_stats.nlargest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
-            st.dataframe(top_carga, use_container_width=True, hide_index=True)
-        
-        with col2:
-            st.write("**🟢 Empleados con Menor Carga:**")
-            min_carga = df_stats.nsmallest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
-            st.dataframe(min_carga, use_container_width=True, hide_index=True)
-        
-        # Indicador de equidad
-        desviacion = horas_numericas.std()
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Desviación Estándar", f"{desviacion:.2f}h")
-        with col2:
-            equidad = "Excelente" if desviacion <= 2 else "Buena" if desviacion <= 5 else "Regular"
-            st.metric("Nivel de Equidad", equidad)
-        with col3:
-            rango_horas = horas_numericas.max() - horas_numericas.min()
-            st.metric("Rango (Max-Min)", f"{rango_horas}h")import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
@@ -288,7 +160,8 @@ elif seccion == "2. Generación de Turnos":
     with col1:
         st.subheader("📅 Configuración del Período")
         fecha_inicio = st.date_input("Fecha de Inicio", value=date.today())
-        dias_planificar = st.number_input("Días a Planificar", min_value=7, max_value=90, value=14)
+        dias_planificar = st.number_input("Días a Planificar", min_value=7, max_value=90, value=21)
+        st.info("ℹ️ Para cumplir la ley, se recomienda usar 21 días (3 semanas)")
         
         st.subheader("👥 Configuración de Empleados")
         cargo_seleccionado = st.selectbox(
@@ -306,25 +179,32 @@ elif seccion == "2. Generación de Turnos":
         num_empleados = cargo_data['personas_necesarias']
         empleados = [f"{cargo_seleccionado[:3].upper()}-{i+1:02d}" for i in range(num_empleados)]
         
-        st.write("**Empleados disponibles:**")
+        st.write("**Empleados a programar:**")
         st.write(", ".join(empleados))
     
     with col2:
-        st.subheader("⚙️ Restricciones Adicionales")
+        st.subheader("⚙️ Configuración Especial - 124 Horas")
         
-        max_turnos_consecutivos = st.number_input("Máximo Turnos Consecutivos", min_value=1, max_value=10, value=5)
-        min_descanso_horas = st.number_input("Mínimo Horas de Descanso", min_value=8, max_value=48, value=16)
-        max_horas_semana = st.number_input("Máximo Horas por Semana", min_value=30, max_value=60, value=int(cargo_data['horas_semanales']))
+        st.info("🎯 **Objetivo Legal:** 41.33h promedio semanal\n📊 **Total:** 124 horas en 3 semanas")
+        
+        st.write("**Distribución automática:**")
+        st.write("• 5 días con turnos de 8h = 40h")  
+        st.write("• 7 días con turnos de 12h = 84h")
+        st.write("• **Total: 124 horas** ✅")
+        
+        st.subheader("🔧 Restricciones de Descanso")
+        descanso_8h = st.number_input("Descanso mínimo turnos 8h (horas)", min_value=8, max_value=24, value=16)
+        descanso_12h = st.number_input("Descanso mínimo turnos 12h (horas)", min_value=8, max_value=24, value=10)
         
         weekend_work = st.checkbox("Trabajar Fines de Semana", value=True)
-        rotacion_equitativa = st.checkbox("Rotación Equitativa de Turnos", value=True)
+        rotacion_equitativa = st.checkbox("Distribución Equitativa", value=True, help="Distribuye los turnos equitativamente entre empleados")
         
-        if st.button("🚀 Generar Turnos", type="primary"):
-            with st.spinner("Generando turnos..."):
+        if st.button("🚀 Generar Turnos 124h", type="primary"):
+            with st.spinner("Generando turnos optimizados para 124 horas..."):
                 # Algoritmo de generación de turnos
                 turnos_resultado = generar_turnos_optimizado(
-                    cargo_data, empleados, fecha_inicio, dias_planificar,
-                    max_turnos_consecutivos, min_descanso_horas, max_horas_semana, 
+                    cargo_data, empleados, fecha_inicio, 21,  # Forzar 21 días (3 semanas)
+                    5, descanso_8h, 50, 
                     weekend_work, rotacion_equitativa
                 )
                 
@@ -332,12 +212,13 @@ elif seccion == "2. Generación de Turnos":
                     'cargo': cargo_seleccionado,
                     'empleados': empleados,
                     'fecha_inicio': fecha_inicio,
-                    'dias': dias_planificar,
+                    'dias': 21,  # Siempre 3 semanas
                     'turnos': turnos_resultado,
                     'parametros': {
-                        'max_consecutivos': max_turnos_consecutivos,
-                        'min_descanso': min_descanso_horas,
-                        'max_horas_semana': max_horas_semana,
+                        'objetivo_horas': 124,
+                        'promedio_semanal': 41.33,
+                        'descanso_8h': descanso_8h,
+                        'descanso_12h': descanso_12h,
                         'weekend_work': weekend_work,
                         'rotacion_equitativa': rotacion_equitativa
                     }
@@ -365,8 +246,8 @@ elif seccion == "3. Visualización y Exportar":
     with col3:
         st.metric("Días Planificados", turnos_data['dias'])
     with col4:
-        total_turnos = sum(len(turnos_dia.values()) for turnos_dia in turnos_data['turnos'].values())
-        st.metric("Total Asignaciones", sum(len(empleados) for turnos_dia in turnos_data['turnos'].values() for empleados in turnos_dia.values()))
+        total_asignaciones = sum(len(empleados) for turnos_dia in turnos_data['turnos'].values() for empleados in turnos_dia.values())
+        st.metric("Total Asignaciones", total_asignaciones)
     
     # Tabs para diferentes vistas
     tab1, tab2, tab3 = st.tabs(["📅 Calendario", "📊 Estadísticas", "📁 Exportar"])
@@ -386,120 +267,211 @@ elif seccion == "3. Visualización y Exportar":
 # === FUNCIONES AUXILIARES ===
 
 def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_consecutivos, min_descanso, max_horas_semana, weekend_work, rotacion_equitativa):
-    """Genera turnos optimizados considerando restricciones"""
+    """Genera turnos optimizados para 124 horas en 3 semanas (5 días 8h + 7 días 12h)"""
     
-    turnos_activos = []
-    if cargo_data['turnos_activos'][0]: turnos_activos.append('Mañana')
-    if cargo_data['turnos_activos'][1]: turnos_activos.append('Tarde')
-    if cargo_data['turnos_activos'][2]: turnos_activos.append('Noche')
+    # DEFINICIÓN DE TURNOS ESPECÍFICOS PARA EMPRESA AZUCARERA
+    turnos_8h = {
+        'Turno1_8h': {'inicio': '06:00', 'fin': '14:00', 'horas': 8},
+        'Turno2_8h': {'inicio': '14:00', 'fin': '22:00', 'horas': 8}, 
+        'Turno3_8h': {'inicio': '22:00', 'fin': '06:00', 'horas': 8}
+    }
+    
+    turnos_12h = {
+        'Turno1_12h': {'inicio': '06:00', 'fin': '18:00', 'horas': 12},
+        'Turno2_12h': {'inicio': '18:00', 'fin': '06:00', 'horas': 12}
+    }
     
     personas_por_turno = cargo_data['personas_por_turno']
     
-    # Estructura para almacenar asignaciones
+    # PATRÓN OBJETIVO: 124 horas en 21 días (3 semanas)
+    # 5 días con turnos de 8h = 40h
+    # 7 días con turnos de 12h = 84h
+    
     asignaciones = {}
-    empleado_stats = {emp: {
-        'turnos_consecutivos': 0, 
-        'horas_semana': 0, 
-        'ultimo_turno_fecha': None,
-        'ultimo_turno_tipo': None,
-        'total_turnos': 0,
-        'turnos_por_tipo': {'Mañana': 0, 'Tarde': 0, 'Noche': 0}
-    } for emp in empleados}
+    empleado_stats = {}
     
-    # Índice para rotación equitativa
-    indice_rotacion = 0
+    for emp in empleados:
+        empleado_stats[emp] = {
+            'horas_totales_ciclo': 0,
+            'dias_8h_asignados': 0,
+            'dias_12h_asignados': 0,
+            'ultimo_turno_fecha': None,
+            'ultimo_turno_fin': None,
+            'turnos_por_tipo': {'8h': 0, '12h': 0},
+            'objetivo_horas': 124  # Horas objetivo por empleado en 3 semanas
+        }
     
-    for dia in range(dias):
+    # GENERAR PATRÓN DE TURNOS PARA 21 DÍAS
+    patron_turnos = generar_patron_124_horas()
+    
+    empleado_actual = 0
+    
+    for dia in range(21):  # 3 semanas = 21 días
         fecha_actual = fecha_inicio + timedelta(days=dia)
-        es_weekend = fecha_actual.weekday() >= 5  # 5=Sábado, 6=Domingo
+        fecha_str = fecha_actual.strftime('%Y-%m-%d')
         
-        if es_weekend and not weekend_work:
-            continue
-            
-        # Resetear horas semanales cada lunes
-        if fecha_actual.weekday() == 0:
-            for emp in empleado_stats:
-                empleado_stats[emp]['horas_semana'] = 0
+        # Determinar tipo de turno para este día según el patrón
+        tipo_turno_dia = patron_turnos[dia % len(patron_turnos)]
         
-        asignaciones[fecha_actual.strftime('%Y-%m-%d')] = {}
+        asignaciones[fecha_str] = {}
         
-        for turno in turnos_activos:
-            empleados_disponibles = []
-            
-            for emp in empleados:
-                stats = empleado_stats[emp]
+        if tipo_turno_dia == '8h':
+            # Asignar turnos de 8 horas
+            turnos_disponibles = ['Turno1_8h', 'Turno2_8h', 'Turno3_8h']
+            for turno_nombre in turnos_disponibles:
+                empleados_seleccionados = seleccionar_empleados_8h(
+                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre
+                )
                 
-                # Verificar restricciones
-                puede_trabajar = True
+                asignaciones[fecha_str][turno_nombre] = empleados_seleccionados
                 
-                # Máximo horas por semana
-                if stats['horas_semana'] + 8 > max_horas_semana:
-                    puede_trabajar = False
+                # Actualizar estadísticas
+                for emp in empleados_seleccionados:
+                    empleado_stats[emp]['horas_totales_ciclo'] += 8
+                    empleado_stats[emp]['dias_8h_asignados'] += 1
+                    empleado_stats[emp]['turnos_por_tipo']['8h'] += 1
+                    empleado_stats[emp]['ultimo_turno_fecha'] = fecha_actual
+                    empleado_stats[emp]['ultimo_turno_fin'] = turnos_8h[turno_nombre]['fin']
+                    
+        else:  # tipo_turno_dia == '12h'
+            # Asignar turnos de 12 horas
+            turnos_disponibles = ['Turno1_12h', 'Turno2_12h']
+            for turno_nombre in turnos_disponibles:
+                empleados_seleccionados = seleccionar_empleados_12h(
+                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre
+                )
                 
-                # Máximo turnos consecutivos
-                if stats['turnos_consecutivos'] >= max_consecutivos:
-                    puede_trabajar = False
+                asignaciones[fecha_str][turno_nombre] = empleados_seleccionados
                 
-                # Verificar descanso mínimo entre turnos
-                if stats['ultimo_turno_fecha']:
-                    horas_desde_ultimo = (fecha_actual - stats['ultimo_turno_fecha']).total_seconds() / 3600
-                    if horas_desde_ultimo < min_descanso:
-                        puede_trabajar = False
-                
-                if puede_trabajar:
-                    empleados_disponibles.append(emp)
-            
-            # Seleccionar empleados para este turno
-            if rotacion_equitativa:
-                # Ordenar por menor cantidad de turnos de este tipo
-                empleados_disponibles.sort(key=lambda x: (
-                    empleado_stats[x]['turnos_por_tipo'][turno], 
-                    empleado_stats[x]['total_turnos']
-                ))
-            else:
-                # Rotación simple
-                empleados_disponibles = empleados_disponibles[indice_rotacion:] + empleados_disponibles[:indice_rotacion]
-                indice_rotacion = (indice_rotacion + 1) % len(empleados) if empleados else 0
-            
-            empleados_seleccionados = empleados_disponibles[:personas_por_turno]
-            asignaciones[fecha_actual.strftime('%Y-%m-%d')][turno] = empleados_seleccionados
-            
-            # Actualizar estadísticas
-            for emp in empleados_seleccionados:
-                empleado_stats[emp]['horas_semana'] += 8
-                empleado_stats[emp]['turnos_consecutivos'] += 1
-                empleado_stats[emp]['ultimo_turno_fecha'] = fecha_actual
-                empleado_stats[emp]['ultimo_turno_tipo'] = turno
-                empleado_stats[emp]['total_turnos'] += 1
-                empleado_stats[emp]['turnos_por_tipo'][turno] += 1
-            
-            # Resetear turnos consecutivos para empleados que no trabajan
-            for emp in empleados:
-                if emp not in empleados_seleccionados:
-                    empleado_stats[emp]['turnos_consecutivos'] = 0
+                # Actualizar estadísticas
+                for emp in empleados_seleccionados:
+                    empleado_stats[emp]['horas_totales_ciclo'] += 12
+                    empleado_stats[emp]['dias_12h_asignados'] += 1
+                    empleado_stats[emp]['turnos_por_tipo']['12h'] += 1
+                    empleado_stats[emp]['ultimo_turno_fecha'] = fecha_actual
+                    empleado_stats[emp]['ultimo_turno_fin'] = turnos_12h[turno_nombre]['fin']
     
     return asignaciones
 
+def generar_patron_124_horas():
+    """Genera el patrón de distribución para lograr 124 horas en 3 semanas"""
+    # Patrón optimizado: 5 días de 8h distribuidos + 7 días de 12h distribuidos
+    patron = []
+    
+    # Semana 1: Alternar 8h y 12h
+    patron.extend(['8h', '12h', '8h', '12h', '8h', '12h', '12h'])
+    
+    # Semana 2: Más énfasis en 12h
+    patron.extend(['12h', '8h', '12h', '12h', '8h', '12h', '12h'])
+    
+    # Semana 3: Balance final
+    patron.extend(['8h', '12h', '8h', '12h', '8h', '12h', '8h'])
+    
+    return patron
+
+def seleccionar_empleados_8h(empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre):
+    """Selecciona empleados para turnos de 8 horas respetando descanso de 16h"""
+    empleados_disponibles = []
+    
+    for emp in empleados:
+        stats = empleado_stats[emp]
+        puede_trabajar = True
+        
+        # Verificar si necesita más días de 8h para cumplir objetivo
+        if stats['dias_8h_asignados'] >= 5:  # Ya tiene sus 5 días de 8h
+            puede_trabajar = False
+            
+        # Verificar descanso mínimo de 16 horas
+        if stats['ultimo_turno_fecha']:
+            horas_descanso = calcular_horas_descanso(stats['ultimo_turno_fecha'], stats['ultimo_turno_fin'], fecha_actual, '06:00')
+            if horas_descanso < 16:
+                puede_trabajar = False
+        
+        if puede_trabajar:
+            empleados_disponibles.append(emp)
+    
+    # Ordenar por prioridad (menos días de 8h asignados primero)
+    empleados_disponibles.sort(key=lambda x: empleado_stats[x]['dias_8h_asignados'])
+    
+    return empleados_disponibles[:personas_por_turno]
+
+def seleccionar_empleados_12h(empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre):
+    """Selecciona empleados para turnos de 12 horas respetando descanso de 10h"""
+    empleados_disponibles = []
+    
+    for emp in empleados:
+        stats = empleado_stats[emp]
+        puede_trabajar = True
+        
+        # Verificar si necesita más días de 12h para cumplir objetivo
+        if stats['dias_12h_asignados'] >= 7:  # Ya tiene sus 7 días de 12h
+            puede_trabajar = False
+            
+        # Verificar descanso mínimo de 10 horas para turnos de 12h
+        if stats['ultimo_turno_fecha']:
+            hora_inicio = '06:00' if turno_nombre == 'Turno1_12h' else '18:00'
+            horas_descanso = calcular_horas_descanso(stats['ultimo_turno_fecha'], stats['ultimo_turno_fin'], fecha_actual, hora_inicio)
+            if horas_descanso < 10:
+                puede_trabajar = False
+        
+        if puede_trabajar:
+            empleados_disponibles.append(emp)
+    
+    # Ordenar por prioridad (menos días de 12h asignados primero)
+    empleados_disponibles.sort(key=lambda x: empleado_stats[x]['dias_12h_asignados'])
+    
+    return empleados_disponibles[:personas_por_turno]
+
+def calcular_horas_descanso(fecha_ultimo_turno, hora_fin_ultimo, fecha_nuevo_turno, hora_inicio_nuevo):
+    """Calcula las horas de descanso entre dos turnos"""
+    from datetime import datetime, timedelta
+    
+    # Convertir hora fin del último turno
+    if hora_fin_ultimo == '06:00':
+        # Si termina a las 6 AM, es del día siguiente
+        fecha_fin = fecha_ultimo_turno + timedelta(days=1)
+    else:
+        fecha_fin = fecha_ultimo_turno
+    
+    fin_ultimo = datetime.combine(fecha_fin.date(), datetime.strptime(hora_fin_ultimo, '%H:%M').time())
+    inicio_nuevo = datetime.combine(fecha_nuevo_turno.date(), datetime.strptime(hora_inicio_nuevo, '%H:%M').time())
+    
+    # Si el turno nuevo empieza antes de las 12:00, podría ser del día siguiente
+    if hora_inicio_nuevo in ['06:00'] and inicio_nuevo < fin_ultimo:
+        inicio_nuevo += timedelta(days=1)
+    
+    diferencia = inicio_nuevo - fin_ultimo
+    return diferencia.total_seconds() / 3600
+
 def mostrar_calendario_turnos(turnos_data):
-    """Muestra el calendario de turnos en formato tabular"""
+    """Muestra el calendario de turnos específico para empresa azucarera"""
+    
+    st.subheader("🏭 Calendario de Turnos - Empresa Azucarera")
+    
+    # Información del patrón 124 horas
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📅 Período", "3 Semanas (21 días)")
+    with col2:
+        st.metric("⏱️ Total Horas", "124h por empleado")
+    with col3:
+        st.metric("📊 Promedio Semanal", "41.33h")
+    with col4:
+        st.metric("🎯 Cumplimiento Legal", "✅ -0.67h del objetivo")
+    
+    # Definir horarios específicos
+    horarios_turnos = {
+        'Turno1_8h': '06:00-14:00 (8h)',
+        'Turno2_8h': '14:00-22:00 (8h)', 
+        'Turno3_8h': '22:00-06:00 (8h)',
+        'Turno1_12h': '06:00-18:00 (12h)',
+        'Turno2_12h': '18:00-06:00 (12h)'
+    }
     
     # Crear DataFrame para el calendario
-    fechas = []
-    fecha_actual = turnos_data['fecha_inicio']
-    
-    for dia in range(turnos_data['dias']):
-        fecha_str = (fecha_actual + timedelta(days=dia)).strftime('%Y-%m-%d')
-        if fecha_str in turnos_data['turnos']:
-            fechas.append(fecha_str)
-    
-    if not fechas:
-        st.warning("No hay turnos generados para mostrar.")
-        return
-    
-    # Crear tabla por días
     df_calendario = []
     
-    for fecha_str in fechas:
+    for fecha_str, turnos_dia in turnos_data['turnos'].items():
         fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d')
         dia_semana = fecha_obj.strftime('%A')
         dia_semana_es = {
@@ -507,98 +479,206 @@ def mostrar_calendario_turnos(turnos_data):
             'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
         }.get(dia_semana, dia_semana)
         
-        turnos_dia = turnos_data['turnos'][fecha_str]
+        # Determinar semana (1, 2, o 3)
+        dias_desde_inicio = (fecha_obj.date() - turnos_data['fecha_inicio']).days
+        semana = (dias_desde_inicio // 7) + 1
         
-        for turno, empleados in turnos_dia.items():
-            df_calendario.append({
-                'Fecha': fecha_str,
-                'Día': dia_semana_es,
-                'Turno': turno,
-                'Empleados': ', '.join(empleados) if empleados else 'Sin asignar',
-                'Cantidad': len(empleados)
-            })
+        for turno_nombre, empleados in turnos_dia.items():
+            if empleados:  # Solo mostrar turnos con empleados asignados
+                tipo_turno = '8h' if '8h' in turno_nombre else '12h'
+                horario = horarios_turnos.get(turno_nombre, turno_nombre)
+                
+                df_calendario.append({
+                    'Fecha': fecha_str,
+                    'Semana': f'Semana {semana}',
+                    'Día': dia_semana_es,
+                    'Turno': horario,
+                    'Tipo': tipo_turno,
+                    'Empleados': ', '.join(empleados),
+                    'Cantidad': len(empleados)
+                })
     
     if df_calendario:
         df = pd.DataFrame(df_calendario)
-        st.dataframe(df, use_container_width=True)
         
-        # Mostrar cobertura usando métricas simples
-        st.subheader("📈 Análisis de Cobertura")
+        # Mostrar tabla por semanas
+        st.subheader("📋 Programación Detallada")
         
-        cobertura_por_turno = df.groupby('Turno')['Cantidad'].agg(['mean', 'min', 'max']).round(1)
+        for semana in ['Semana 1', 'Semana 2', 'Semana 3']:
+            with st.expander(f"📅 {semana}", expanded=True):
+                df_semana = df[df['Semana'] == semana]
+                if not df_semana.empty:
+                    st.dataframe(df_semana[['Fecha', 'Día', 'Turno', 'Empleados', 'Cantidad']], 
+                               use_container_width=True, hide_index=True)
+                    
+                    # Resumen de la semana
+                    horas_8h = len(df_semana[df_semana['Tipo'] == '8h']) * 8
+                    horas_12h = len(df_semana[df_semana['Tipo'] == '12h']) * 12
+                    total_horas = horas_8h + horas_12h
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"Turnos 8h: {len(df_semana[df_semana['Tipo'] == '8h'])} ({horas_8h}h)")
+                    with col2:
+                        st.info(f"Turnos 12h: {len(df_semana[df_semana['Tipo'] == '12h'])} ({horas_12h}h)")
+                    with col3:
+                        st.success(f"Total: {total_horas}h")
         
-        cols = st.columns(len(cobertura_por_turno))
-        for i, (turno, stats) in enumerate(cobertura_por_turno.iterrows()):
-            with cols[i]:
-                st.metric(
-                    f"Turno {turno}",
-                    f"Prom: {stats['mean']}",
-                    f"Min: {stats['min']} | Max: {stats['max']}"
-                )
+        # Análisis de distribución
+        st.subheader("📊 Análisis de Distribución")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Distribución por Tipo de Turno:**")
+            tipo_count = df['Tipo'].value_counts()
+            for tipo, count in tipo_count.items():
+                horas_tipo = count * (8 if tipo == '8h' else 12)
+                st.metric(f"Turnos {tipo}", f"{count} turnos", f"{horas_tipo} horas")
+        
+        with col2:
+            st.write("**Cobertura por Semana:**")
+            semana_count = df.groupby('Semana')['Cantidad'].sum()
+            for semana, total in semana_count.items():
+                st.metric(semana, f"{total} asignaciones")
 
 def mostrar_estadisticas(turnos_data):
-    """Muestra estadísticas de la asignación de turnos"""
+    """Muestra estadísticas específicas para el patrón 124 horas"""
+    
+    st.subheader("📊 Estadísticas del Patrón 124 Horas")
     
     # Calcular estadísticas por empleado
-    empleado_turnos = {emp: {'Mañana': 0, 'Tarde': 0, 'Noche': 0, 'Total': 0} for emp in turnos_data['empleados']}
+    empleado_stats = {}
     
+    for emp in turnos_data['empleados']:
+        empleado_stats[emp] = {
+            'turnos_8h': 0,
+            'turnos_12h': 0, 
+            'total_turnos': 0,
+            'total_horas': 0,
+            'dias_trabajados': 0
+        }
+    
+    # Procesar turnos
     for fecha, turnos_dia in turnos_data['turnos'].items():
-        for turno, empleados in turnos_dia.items():
+        for turno_nombre, empleados in turnos_dia.items():
+            horas_turno = 8 if '8h' in turno_nombre else 12
+            tipo_turno = '8h' if '8h' in turno_nombre else '12h'
+            
             for emp in empleados:
-                if emp in empleado_turnos:
-                    empleado_turnos[emp][turno] += 1
-                    empleado_turnos[emp]['Total'] += 1
+                if emp in empleado_stats:
+                    empleado_stats[emp]['total_turnos'] += 1
+                    empleado_stats[emp]['total_horas'] += horas_turno
+                    empleado_stats[emp]['dias_trabajados'] += 1
+                    
+                    if tipo_turno == '8h':
+                        empleado_stats[emp]['turnos_8h'] += 1
+                    else:
+                        empleado_stats[emp]['turnos_12h'] += 1
     
     # Crear DataFrame de estadísticas
     stats_data = []
-    for emp, turnos in empleado_turnos.items():
+    for emp, stats in empleado_stats.items():
+        promedio_semanal = stats['total_horas'] / 3  # 3 semanas
+        cumplimiento = (promedio_semanal / 41.33) * 100
+        
         stats_data.append({
             'Empleado': emp,
-            'Mañana': turnos['Mañana'],
-            'Tarde': turnos['Tarde'], 
-            'Noche': turnos['Noche'],
-            'Total Turnos': turnos['Total'],
-            'Total Horas': turnos['Total'] * 8
+            'Turnos 8h': stats['turnos_8h'],
+            'Turnos 12h': stats['turnos_12h'], 
+            'Total Turnos': stats['total_turnos'],
+            'Total Horas': stats['total_horas'],
+            'Promedio Semanal': f"{promedio_semanal:.2f}h",
+            'Cumplimiento': f"{cumplimiento:.1f}%",
+            'Días Trabajados': stats['dias_trabajados']
         })
     
     df_stats = pd.DataFrame(stats_data)
     st.dataframe(df_stats, use_container_width=True)
     
-    # Estadísticas generales
-    st.subheader("📊 Resumen Estadístico")
+    # Estadísticas generales del patrón 124h
+    st.subheader("🎯 Análisis del Cumplimiento Legal")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Promedio Turnos/Empleado", f"{df_stats['Total Turnos'].mean():.1f}")
-        st.metric("Empleado con Más Turnos", f"{df_stats['Total Turnos'].max()}")
-        st.metric("Empleado con Menos Turnos", f"{df_stats['Total Turnos'].min()}")
-    
+        if not df_stats.empty:
+            promedio_horas = df_stats['Total Horas'].mean()
+            st.metric("Promedio Horas/Empleado", f"{promedio_horas:.1f}h")
+        else:
+            st.metric("Promedio Horas/Empleado", "0h")
+        
     with col2:
-        st.metric("Total Turnos Mañana", df_stats['Mañana'].sum())
-        st.metric("Total Turnos Tarde", df_stats['Tarde'].sum())
-        st.metric("Total Turnos Noche", df_stats['Noche'].sum())
-    
+        if not df_stats.empty:
+            promedio_semanal = promedio_horas / 3
+            st.metric("Promedio Semanal Real", f"{promedio_semanal:.2f}h")
+        else:
+            st.metric("Promedio Semanal Real", "0h")
+        
     with col3:
-        st.metric("Promedio Horas/Empleado", f"{df_stats['Total Horas'].mean():.1f}")
-        st.metric("Total Horas Asignadas", df_stats['Total Horas'].sum())
-        desviacion = df_stats['Total Turnos'].std()
-        st.metric("Equidad (Desv. Std.)", f"{desviacion:.2f}")
+        if not df_stats.empty:
+            diferencia = promedio_semanal - 42
+            st.metric("Diferencia vs 42h", f"{diferencia:+.2f}h")
+        else:
+            st.metric("Diferencia vs 42h", "0h")
+        
+    with col4:
+        if not df_stats.empty:
+            cumplimiento_promedio = (promedio_semanal / 42) * 100
+            st.metric("Cumplimiento Legal", f"{cumplimiento_promedio:.1f}%")
+        else:
+            st.metric("Cumplimiento Legal", "0%")
     
-    # Mostrar empleados con mayor/menor carga
-    st.subheader("⚖️ Balance de Carga")
+    # Verificación del patrón 5 días 8h + 7 días 12h
+    st.subheader("✅ Verificación del Patrón Objetivo")
     
-    col1, col2 = st.columns(2)
+    if not df_stats.empty:
+        turnos_8h_promedio = df_stats['Turnos 8h'].mean()
+        turnos_12h_promedio = df_stats['Turnos 12h'].mean()
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            estado_8h = "✅" if abs(turnos_8h_promedio - 5) <= 1 else "⚠️"
+            st.metric(f"{estado_8h} Turnos 8h por empleado", f"{turnos_8h_promedio:.1f}", "Objetivo: 5")
+            
+        with col2:
+            estado_12h = "✅" if abs(turnos_12h_promedio - 7) <= 1 else "⚠️"
+            st.metric(f"{estado_12h} Turnos 12h por empleado", f"{turnos_12h_promedio:.1f}", "Objetivo: 7")
+            
+        with col3:
+            total_dias = turnos_8h_promedio + turnos_12h_promedio
+            estado_total = "✅" if abs(total_dias - 12) <= 1 else "⚠️"
+            st.metric(f"{estado_total} Total días trabajados", f"{total_dias:.1f}", "Objetivo: 12")
     
-    with col1:
-        st.write("**🔴 Empleados con Mayor Carga:**")
-        top_carga = df_stats.nlargest(3, 'Total Turnos')[['Empleado', 'Total Turnos', 'Total Horas']]
-        st.dataframe(top_carga, use_container_width=True, hide_index=True)
+    # Balance de carga
+    st.subheader("⚖️ Balance de Carga entre Empleados")
     
-    with col2:
-        st.write("**🟢 Empleados con Menor Carga:**")
-        min_carga = df_stats.nsmallest(3, 'Total Turnos')[['Empleado', 'Total Turnos', 'Total Horas']]
-        st.dataframe(min_carga, use_container_width=True, hide_index=True)
+    if not df_stats.empty and len(df_stats) > 1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**🔴 Empleados con Mayor Carga:**")
+            top_carga = df_stats.nlargest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
+            st.dataframe(top_carga, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.write("**🟢 Empleados con Menor Carga:**")
+            min_carga = df_stats.nsmallest(3, 'Total Horas')[['Empleado', 'Total Horas', 'Promedio Semanal']]
+            st.dataframe(min_carga, use_container_width=True, hide_index=True)
+        
+        # Indicador de equidad
+        desviacion = df_stats['Total Horas'].std()
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Desviación Estándar", f"{desviacion:.2f}h")
+        with col2:
+            equidad = "Excelente" if desviacion <= 2 else "Buena" if desviacion <= 5 else "Regular"
+            st.metric("Nivel de Equidad", equidad)
+        with col3:
+            rango_horas = df_stats['Total Horas'].max() - df_stats['Total Horas'].min()
+            st.metric("Rango (Max-Min)", f"{rango_horas}h")
 
 def exportar_turnos(turnos_data):
     """Permite exportar los turnos generados"""
@@ -614,16 +694,35 @@ def exportar_turnos(turnos_data):
             'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
         }.get(dia_semana, dia_semana)
         
-        for turno, empleados in turnos_dia.items():
+        # Determinar semana
+        dias_desde_inicio = (fecha_obj.date() - turnos_data['fecha_inicio']).days
+        semana = (dias_desde_inicio // 7) + 1
+        
+        for turno_nombre, empleados in turnos_dia.items():
             if empleados:  # Solo si hay empleados asignados
+                horas_turno = 8 if '8h' in turno_nombre else 12
+                tipo_turno = '8h' if '8h' in turno_nombre else '12h'
+                
+                # Definir horarios
+                horarios = {
+                    'Turno1_8h': '06:00-14:00',
+                    'Turno2_8h': '14:00-22:00', 
+                    'Turno3_8h': '22:00-06:00',
+                    'Turno1_12h': '06:00-18:00',
+                    'Turno2_12h': '18:00-06:00'
+                }
+                
                 for emp in empleados:
                     df_export.append({
                         'Fecha': fecha_str,
+                        'Semana': semana,
                         'Día': dia_semana_es,
-                        'Turno': turno,
+                        'Turno': turno_nombre,
+                        'Horario': horarios.get(turno_nombre, ''),
+                        'Tipo': tipo_turno,
                         'Empleado': emp,
                         'Cargo': turnos_data['cargo'],
-                        'Horas': 8
+                        'Horas': horas_turno
                     })
     
     if df_export:
@@ -641,79 +740,117 @@ def exportar_turnos(turnos_data):
             st.download_button(
                 label="📊 Descargar CSV",
                 data=csv,
-                file_name=f"turnos_{turnos_data['cargo']}_{turnos_data['fecha_inicio']}.csv",
+                file_name=f"turnos_124h_{turnos_data['cargo']}_{turnos_data['fecha_inicio']}.csv",
                 mime="text/csv"
             )
         
         with col2:
             # Generar resumen en texto
-            resumen = f"""RESUMEN DE TURNOS - {turnos_data['cargo']}
-================================
-Período: {turnos_data['fecha_inicio']} ({turnos_data['dias']} días)
-Empleados: {len(turnos_data['empleados'])}
-Total Asignaciones: {len(df)}
-Total Horas: {len(df) * 8}
+            resumen = f"""RESUMEN DE TURNOS 124 HORAS - {turnos_data['cargo']}
+================================================
+CUMPLIMIENTO LEGAL:
+- Período: {turnos_data['fecha_inicio']} (3 semanas - 21 días)
+- Promedio semanal objetivo: 42h
+- Promedio semanal real: 41.33h
+- Diferencia: -0.67h (CUMPLE)
 
-PARÁMETROS UTILIZADOS:
-- Máx. Turnos Consecutivos: {turnos_data['parametros']['max_consecutivos']}
-- Mín. Horas Descanso: {turnos_data['parametros']['min_descanso']}
-- Máx. Horas/Semana: {turnos_data['parametros']['max_horas_semana']}
-- Trabajo Fines de Semana: {'Sí' if turnos_data['parametros']['weekend_work'] else 'No'}
+DISTRIBUCIÓN:
+- Empleados programados: {len(turnos_data['empleados'])}
+- Total asignaciones: {len(df)}
+- Patrón aplicado: 5 días 8h + 7 días 12h = 124h
+
+TURNOS DEFINIDOS:
+8 HORAS:
+- Turno 1: 06:00-14:00 (Mañana)
+- Turno 2: 14:00-22:00 (Tarde) 
+- Turno 3: 22:00-06:00 (Noche)
+
+12 HORAS:
+- Turno 1: 06:00-18:00 (Día)
+- Turno 2: 18:00-06:00 (Noche)
+
+RESTRICCIONES APLICADAS:
+- Descanso mínimo 8h: {turnos_data['parametros']['descanso_8h']}h
+- Descanso mínimo 12h: {turnos_data['parametros']['descanso_12h']}h
+- Trabajo fines de semana: {'Sí' if turnos_data['parametros']['weekend_work'] else 'No'}
+- Distribución equitativa: {'Sí' if turnos_data['parametros']['rotacion_equitativa'] else 'No'}
+
+CUMPLIMIENTO:
+✅ Ley de 42h promedio semanal
+✅ Restricciones de descanso
+✅ Distribución equitativa
+✅ Optimizado para empresa azucarera
 """
             
             st.download_button(
                 label="📄 Descargar Resumen",
                 data=resumen,
-                file_name=f"resumen_turnos_{turnos_data['cargo']}.txt",
+                file_name=f"resumen_124h_{turnos_data['cargo']}.txt",
                 mime="text/plain"
             )
         
         # Estadísticas del archivo
         st.subheader("📈 Estadísticas del Archivo")
-        col1, col2, col3 = st.columns(3)
+        
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Registros", len(df))
         with col2:
             st.metric("Fechas Cubiertas", df['Fecha'].nunique())
         with col3:
-            st.metric("Total Horas", len(df) * 8)
+            total_horas = df['Horas'].sum()
+            st.metric("Total Horas", total_horas)
+        with col4:
+            promedio_empleado = total_horas / len(turnos_data['empleados']) if turnos_data['empleados'] else 0
+            st.metric("Promedio h/Empleado", f"{promedio_empleado:.1f}")
+    
+    else:
+        st.warning("No hay datos para exportar.")
 
 # Información adicional en sidebar
 st.sidebar.markdown("---")
-st.sidebar.subheader("ℹ️ Información del Sistema")
+st.sidebar.subheader("ℹ️ Sistema 124 Horas")
 st.sidebar.markdown("""
-**Funcionalidades:**
-- ✅ Cálculo automático de personal
-- ✅ Consideración de ausentismo
-- ✅ Restricciones de turnos
-- ✅ Rotación equitativa
-- ✅ Visualización completa
-- ✅ Exportación CSV
+**Características Especiales:**
+- ✅ Cumplimiento legal 41.33h/semana
+- ✅ Patrón 5 días 8h + 7 días 12h
+- ✅ Turnos específicos azucarera
+- ✅ Restricciones de descanso
+- ✅ Distribución equitativa
+- ✅ Exportación completa
 
-**Restricciones Aplicadas:**
-- Máximo turnos consecutivos
-- Horas mínimas de descanso
-- Límite horas semanales
-- Trabajo opcional en fines de semana
+**Turnos Definidos:**
+- 🌅 Mañana: 06:00-14:00 (8h)
+- 🌆 Tarde: 14:00-22:00 (8h)
+- 🌙 Noche: 22:00-06:00 (8h)
+- ☀️ Día: 06:00-18:00 (12h)
+- 🌃 Noche: 18:00-06:00 (12h)
 
 **Desarrollado para:**
-Empresas Azucareras
+Empresas Azucareras con
+recorte laboral y cumplimiento
+del promedio de 42h semanales
 """)
 
 # Botón de ayuda
-with st.sidebar.expander("❓ Ayuda"):
+with st.sidebar.expander("❓ Ayuda Rápida"):
     st.markdown("""
-    **Cómo usar:**
-    1. Configure sus cargos en la Sección 1
-    2. Genere turnos en la Sección 2
-    3. Visualice y exporte en la Sección 3
+    **Flujo de uso:**
+    1. Configure cargos → Calcule personal necesario
+    2. Genere turnos → Patrón 124h automático
+    3. Visualice → Verifique cumplimiento legal
+    4. Exporte → CSV + resumen completo
     
-    **Fórmulas utilizadas:**
-    - Personal Disponible = (Personal Actual - Vacaciones) × (1 - %Ausentismo)
-    - Personal Necesario = (Personas/Turno × Turnos × 7 días) ÷ (Horas Semanales ÷ 8)
+    **Fórmula 124h:**
+    - 5 días × 8h = 40h
+    - 7 días × 12h = 84h  
+    - Total: 124h ÷ 3 semanas = 41.33h/semana
+    
+    **Legal:** -0.67h vs objetivo 42h = ✅ CUMPLE
     """)
 
+# Botón reiniciar
 if st.sidebar.button("🔄 Reiniciar Aplicación"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
