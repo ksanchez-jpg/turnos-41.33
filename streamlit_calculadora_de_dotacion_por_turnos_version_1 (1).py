@@ -7,7 +7,7 @@ import io
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Generador de Turnos - Empresa Azucarera",
+    page_title="CALCULO PERSONAL REQUERIDO Y GENERADOR DE TURNOS",
     page_icon="🏭",
     layout="wide"
 )
