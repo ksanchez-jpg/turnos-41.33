@@ -338,7 +338,7 @@ def generar_turnos_optimizado(cargo_data, empleados, fecha_inicio, dias, max_con
             turnos_disponibles = ['Turno1_12h', 'Turno2_12h']
             for turno_nombre in turnos_disponibles:
                 empleados_seleccionados = seleccionar_empleados_12h(
-                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre, descanso_12h
+                    empleados, empleado_stats, personas_por_turno, fecha_actual, turno_nombre
                 )
                 
                 asignaciones[fecha_str][turno_nombre] = empleados_seleccionados
@@ -422,26 +422,30 @@ def seleccionar_empleados_12h(empleados, empleado_stats, personas_por_turno, fec
     
     return empleados_disponibles[:personas_por_turno]
 
+# ===================================================================
+# ========= INICIO DE LA FUNCIÓN CORREGIDA ==========================
+# ===================================================================
 def calcular_horas_descanso(fecha_ultimo_turno, hora_fin_ultimo, fecha_nuevo_turno, hora_inicio_nuevo):
     """Calcula las horas de descanso entre dos turnos"""
     from datetime import datetime, timedelta
     
     # Convertir hora fin del último turno
     if hora_fin_ultimo == '06:00':
-        # Si termina a las 6 AM, es del día siguiente
+        # Si termina a las 6 AM, es del día siguiente al que empezó el turno
         fecha_fin = fecha_ultimo_turno + timedelta(days=1)
     else:
         fecha_fin = fecha_ultimo_turno
     
-    fin_ultimo = datetime.combine(fecha_fin.date(), datetime.strptime(hora_fin_ultimo, '%H:%M').time())
-    inicio_nuevo = datetime.combine(fecha_nuevo_turno.date(), datetime.strptime(hora_inicio_nuevo, '%H:%M').time())
-    
-    # Si el turno nuevo empieza antes de las 12:00, podría ser del día siguiente
-    if hora_inicio_nuevo in ['06:00'] and inicio_nuevo < fin_ultimo:
-        inicio_nuevo += timedelta(days=1)
+    # --- CORRECCIÓN APLICADA AQUÍ ---
+    # Se eliminó .date() de fecha_fin y fecha_nuevo_turno porque ya son objetos 'date'
+    fin_ultimo = datetime.combine(fecha_fin, datetime.strptime(hora_fin_ultimo, '%H:%M').time())
+    inicio_nuevo = datetime.combine(fecha_nuevo_turno, datetime.strptime(hora_inicio_nuevo, '%H:%M').time())
     
     diferencia = inicio_nuevo - fin_ultimo
     return diferencia.total_seconds() / 3600
+# ===================================================================
+# ========= FIN DE LA FUNCIÓN CORREGIDA =============================
+# ===================================================================
 
 def mostrar_calendario_turnos(turnos_data):
     """Muestra el calendario de turnos específico para empresa azucarera"""
