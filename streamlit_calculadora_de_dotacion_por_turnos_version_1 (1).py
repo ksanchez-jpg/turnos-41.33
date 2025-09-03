@@ -1,4 +1,36 @@
-import streamlit as st
+def mostrar_estadisticas(turnos_data):
+    """Muestra estadísticas específicas para el patrón 124 horas"""
+    
+    st.subheader("📊 Estadísticas del Patrón 124 Horas")
+    
+    # Calcular estadísticas por empleado
+    empleado_stats = {}
+    
+    for emp in turnos_data['empleados']:
+        empleado_stats[emp] = {
+            'turnos_8h': 0,
+            'turnos_12h': 0, 
+            'total_turnos': 0,
+            'total_horas': 0,
+            'dias_trabajados': 0
+        }
+    
+    # Procesar turnos
+    for fecha, turnos_dia in turnos_data['turnos'].items():
+        for turno_nombre, empleados in turnos_dia.items():
+            horas_turno = 8 if '8h' in turno_nombre else 12
+            tipo_turno = '8h' if '8h' in turno_nombre else '12h'
+            
+            for emp in empleados:
+                if emp in empleado_stats:
+                    empleado_stats[emp]['total_turnos'] += 1
+                    empleado_stats[emp]['total_horas'] += horas_turno
+                    empleado_stats[emp]['dias_trabajados'] += 1
+                    
+                    if tipo_turno == '8h':
+                        empleado_stats[emp]['turnos_8h'] += 1
+                    else:
+                        empleado_stats[emp]['turnos_12h'] += import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
@@ -7,13 +39,13 @@ import io
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Generador de Turnos ",
+    page_title="Generador de Turnos - Empresa Azucarera",
     page_icon="🏭",
     layout="wide"
 )
 
 # Título principal
-st.title("🏭 Sistema de Generación de Turnos")
+st.title("🏭 Sistema de Generación de Turnos - Empresa Azucarera")
 
 # Inicializar session state
 if 'cargos_data' not in st.session_state:
@@ -171,10 +203,11 @@ elif seccion == "2. Generación de Turnos":
         # Obtener datos del cargo seleccionado
         cargo_data = next(c for c in st.session_state.cargos_data if c['cargo'] == cargo_seleccionado)
         
-        st.write(f"**Personal disponible para {cargo_seleccionado}: {cargo_data['personal_disponible']:.0f} personas**")
+        st.write(f"**Personal NECESARIO para {cargo_seleccionado}: {cargo_data['personas_necesarias']} personas**")
+        st.write(f"*(Se programa para el personal necesario, no el actual)*")
         
-        # Lista de empleados (simulada)
-        num_empleados = int(cargo_data['personal_disponible'])
+        # Lista de empleados basada en PERSONAL NECESARIO
+        num_empleados = cargo_data['personas_necesarias']
         empleados = [f"{cargo_seleccionado[:3].upper()}-{i+1:02d}" for i in range(num_empleados)]
         
         st.write("**Empleados disponibles:**")
